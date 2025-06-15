@@ -123,6 +123,25 @@
   border-top: 1px solid #eee;
   color: #666;
 }
+.sync-progress-container {
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background-color: #1a1a1a;
+  padding: 8px 16px;
+  z-index: 1000;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+  text-align: center;
+  color: #ccc;
+  font-size: 0.9em;
+}
+
+.initial-load-message {
+  text-align: center;
+  padding: 50px;
+  font-size: 1.2em;
+}
 
 /* Responsive design */
 @media (max-width: 768px) {

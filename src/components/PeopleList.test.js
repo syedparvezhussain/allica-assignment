@@ -1,12 +1,14 @@
+// src/components/PeopleList.test.js
+
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 import PeopleList from "./PeopleList";
 import { useSwapi } from "../hooks/useSwapi";
 import { useFavorites } from "../contexts/FavoritesContext";
 
-
+// Mock the hooks our component depends on
 jest.mock("../hooks/useSwapi");
 jest.mock("../contexts/FavoritesContext");
 
@@ -17,14 +19,15 @@ const mockPeople = [
 ];
 
 describe("PeopleList", () => {
-
+  // Default mock setup for a clean, successful state
   beforeEach(() => {
     useSwapi.mockReturnValue({
-      isInitialized: true,
-      isLoading: false,
+      people: mockPeople,
+      arePeopleLoaded: true,
+      isSyncing: false,
       error: null,
-      progress: {},
-      getAllPeople: jest.fn().mockResolvedValue(mockPeople),
+      progress: { message: "Complete", progress: 100 },
+      clearCache: jest.fn(),
     });
     useFavorites.mockReturnValue({
       isFavorite: jest.fn().mockReturnValue(false),
@@ -32,37 +35,63 @@ describe("PeopleList", () => {
     });
   });
 
-
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  test("displays loading state initially", () => {
-    
+test("displays initial loading message when people are not yet loaded", () => {
+
+  useSwapi.mockReturnValue({
+    people: [],
+    arePeopleLoaded: false,
+    isSyncing: true,
+    error: null,
+    progress: { message: "Loading characters...", progress: 10 },
+  });
+
+  render(
+    <MemoryRouter>
+      <PeopleList />
+    </MemoryRouter>
+  );
+
+
+  expect(screen.getByText("Loading characters...", { selector: 'p' })).toBeInTheDocument();
+
+
+});
+
+  test("displays the list AND a sync progress bar when syncing in background", () => {
+    // Mock a state where people are loaded, but a sync is still running
     useSwapi.mockReturnValue({
-      isInitialized: false,
-      isLoading: true,
+      people: mockPeople,
+      arePeopleLoaded: true,
+      isSyncing: true,
       error: null,
-      progress: { message: "Fetching data...", progress: 50 },
-      getAllPeople: jest.fn(),
+      progress: { message: "Syncing planets...", progress: 50 },
     });
+
     render(
       <MemoryRouter>
         <PeopleList />
       </MemoryRouter>
     );
-    expect(screen.getByText("Fetching data...")).toBeInTheDocument();
- 
+
+    // Check that the people list is visible
+    expect(screen.getByText("Luke Skywalker")).toBeInTheDocument();
+
+    // Check that the background sync bar is also visible
+    expect(screen.getByText("Syncing planets...")).toBeInTheDocument();
   });
 
   test("displays an error message if fetching fails", () => {
     useSwapi.mockReturnValue({
-      isInitialized: false,
-      isLoading: false,
+      people: [],
+      arePeopleLoaded: false,
+      isSyncing: false,
       error: "Failed to fetch",
-      progress: {},
-      getAllPeople: jest.fn(),
     });
+
     render(
       <MemoryRouter>
         <PeopleList />
@@ -72,16 +101,15 @@ describe("PeopleList", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
-  test("renders a list of people after successful fetch", async () => {
+  test("renders a list of people after successful fetch", () => {
     render(
       <MemoryRouter>
         <PeopleList />
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("Luke Skywalker")).toBeInTheDocument();
-    });
+    // The data is now passed directly, so we don't need to `waitFor` it.
+    expect(screen.getByText("Luke Skywalker")).toBeInTheDocument();
     expect(screen.getByText("C-3PO")).toBeInTheDocument();
     expect(screen.getByText("Leia Organa")).toBeInTheDocument();
     expect(
@@ -89,16 +117,12 @@ describe("PeopleList", () => {
     ).toBeInTheDocument();
   });
 
-  test("filters the list of people based on search term", async () => {
+  test("filters the list of people based on search term", () => {
     render(
       <MemoryRouter>
         <PeopleList />
       </MemoryRouter>
     );
-
-    await waitFor(() => {
-      expect(screen.getByText("Luke Skywalker")).toBeInTheDocument();
-    });
 
     const searchInput = screen.getByPlaceholderText("Search characters...");
     fireEvent.change(searchInput, { target: { value: "leia" } });
@@ -108,16 +132,12 @@ describe("PeopleList", () => {
     expect(screen.getByText("Leia Organa")).toBeInTheDocument();
   });
 
-  test("shows a message when search yields no results", async () => {
+  test("shows a message when search yields no results", () => {
     render(
       <MemoryRouter>
         <PeopleList />
       </MemoryRouter>
     );
-
-    await waitFor(() => {
-      expect(screen.getByText("Luke Skywalker")).toBeInTheDocument();
-    });
 
     const searchInput = screen.getByPlaceholderText("Search characters...");
     fireEvent.change(searchInput, { target: { value: "jabba" } });
@@ -127,9 +147,8 @@ describe("PeopleList", () => {
     ).toBeInTheDocument();
   });
 
-  test("calls toggleFavorite when a favorite button is clicked", async () => {
+  test("calls toggleFavorite when a favorite button is clicked", () => {
     const toggleFavorite = jest.fn();
-
     useFavorites.mockReturnValue({
       isFavorite: () => false,
       toggleFavorite,
@@ -141,13 +160,12 @@ describe("PeopleList", () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("Luke Skywalker")).toBeInTheDocument();
-    });
-
+    // Get all favorite buttons and click the first one
     const favoriteButtons = screen.getAllByTitle("Add to favorites");
     fireEvent.click(favoriteButtons[0]);
 
+    // Expect the function to be called with the corresponding person object
     expect(toggleFavorite).toHaveBeenCalledWith(mockPeople[0]);
+    expect(toggleFavorite).toHaveBeenCalledTimes(1);
   });
 });

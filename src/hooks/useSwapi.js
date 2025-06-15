@@ -1,123 +1,122 @@
-// src/hooks/useSwapi.js
-import { useState, useEffect, useCallback } from 'react';
-import swapiDB from '../services/swapiIndexedDB';
+
+import { useState, useEffect, useCallback } from "react";
+import swapiDB from "../services/swapiIndexedDB";
 
 export const useSwapi = () => {
+  const [people, setPeople] = useState([]);
+  const [arePeopleLoaded, setArePeopleLoaded] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [progress, setProgress] = useState({
-    message: 'Initializing...',
-    currentEntity: '',
-    progress: 0
+    message: "Initializing...",
+    currentEntity: "",
+    progress: 0,
   });
 
-  const handleProgressUpdate = useCallback((progressData) => {
-    switch (progressData.type) {
-      case 'start':
-        setProgress({
-          message: progressData.message,
-          currentEntity: '',
-          progress: 0
-        });
-        break;
-      
-      case 'entity_start':
-        setProgress(prev => ({
-          ...prev,
-          message: progressData.message,
-          currentEntity: progressData.entityType
-        }));
-        break;
-      
-      case 'list_progress':
-        setProgress(prev => ({
-          ...prev,
-          message: `Loading ${progressData.entityType}: ${progressData.loaded}/${progressData.total}`,
-          progress: Math.round((progressData.loaded / progressData.total) * 100)
-        }));
-        break;
-      
-      case 'detail_progress':
-        setProgress(prev => ({
-          ...prev,
-          message: `Fetching ${progressData.entityType} details: ${progressData.processed}/${progressData.total}`,
-          progress: Math.round((progressData.processed / progressData.total) * 100)
-        }));
-        break;
-      
-      case 'entity_complete':
-        setProgress(prev => ({
-          ...prev,
-          message: `Completed ${progressData.entityType}`
-        }));
-        break;
-      
-      case 'complete':
-        setProgress({
-          message: progressData.message,
-          currentEntity: '',
-          progress: 100
-        });
+  const handleProgressUpdate = useCallback(
+    (progressData) => {
+      // Update progress state for the UI
+      setProgress((prev) => {
+        switch (progressData.type) {
+          case "start":
+            return { ...prev, message: progressData.message, progress: 0 };
+          case "entity_start":
+          case "entity_list_complete":
+            return {
+              ...prev,
+              message: progressData.message,
+              currentEntity: progressData.entityType,
+            };
+          case "list_progress":
+          case "detail_progress":
+            const newProgress = Math.round(
+              ((progressData.loaded || progressData.processed) /
+                progressData.total) *
+                100
+            );
+            return { ...prev, message: progressData.message, progress: newProgress };
+          case "complete":
+            return { ...prev, message: progressData.message, progress: 100 };
+          default:
+            return prev;
+        }
+      });
+
+      // **NEW**: When 'people' entity is fully loaded, fetch them for the list
+      if (
+        (progressData.type === "entity_complete" &&
+          progressData.entityType === "people") ||
+        (progressData.type === "detail_skip" &&
+          progressData.entityType === "people")
+      ) {
+        if (!arePeopleLoaded) {
+          swapiDB.getAllPeople().then((allPeople) => {
+            setPeople(allPeople);
+            setArePeopleLoaded(true);
+          });
+        }
+      }
+
+      if (progressData.type === "complete") {
         setIsInitialized(true);
         setIsLoading(false);
-        break;
-      
-      case 'error':
+        // Final check to ensure people are loaded if they weren't caught before
+        if (!arePeopleLoaded) {
+          swapiDB.getAllPeople().then((allPeople) => {
+            setPeople(allPeople);
+            setArePeopleLoaded(true);
+          });
+        }
+      }
+
+      if (progressData.type === "error") {
         setError(progressData.message);
         setIsLoading(false);
-        break;
-      
-      default:
-        break;
-    }
-  }, []);
+      }
+    },
+    [arePeopleLoaded]
+  );
 
   useEffect(() => {
     const initializeData = async () => {
       try {
-        // Add progress callback
         swapiDB.addProgressCallback(handleProgressUpdate);
-        
-        // Check if data is already cached
         const isCached = await swapiDB.isDataCached();
-        
+
         if (isCached) {
-          setProgress({
-            message: 'Data loaded from cache',
-            currentEntity: '',
-            progress: 100
-          });
+          // If all data is cached, load people immediately and finish
+          const allPeople = await swapiDB.getAllPeople();
+          setPeople(allPeople);
+          setArePeopleLoaded(true);
           setIsInitialized(true);
           setIsLoading(false);
+          setProgress({
+            message: "Data loaded from cache",
+            currentEntity: "",
+            progress: 100,
+          });
         } else {
-          // Initialize all data
-          await swapiDB.initializeAllData();
+          // Otherwise, start the full initialization process.
+          // The progress handler will load people when they are ready.
+          swapiDB.initializeAllData();
         }
       } catch (err) {
-        console.error('Error during initialization:', err);
-        setError('Failed to initialize Star Wars data. Please refresh to try again.');
+        console.error("Error during initialization:", err);
+        setError(
+          "Failed to initialize Star Wars data. Please refresh to try again."
+        );
         setIsLoading(false);
       }
     };
 
     initializeData();
 
-    // Cleanup
     return () => {
       swapiDB.removeProgressCallback(handleProgressUpdate);
     };
   }, [handleProgressUpdate]);
-
-  const getAllPeople = useCallback(async () => {
-    try {
-      return await swapiDB.getAllPeople();
-    } catch (err) {
-      console.error('Error fetching people:', err);
-      throw new Error('Failed to fetch people data');
-    }
-  }, []);
-
+  
   const getPersonWithRelations = useCallback(async (personId) => {
     try {
       return await swapiDB.getPersonWithRelations(personId);
@@ -130,45 +129,40 @@ export const useSwapi = () => {
   const clearCache = useCallback(async () => {
     try {
       await swapiDB.clearAllData();
-      setIsInitialized(false);
-      setIsLoading(true);
-      setError(null);
-      setProgress({
-        message: 'Cache cleared. Reinitializing...',
-        currentEntity: '',
-        progress: 0
-      });
-      
-      // Restart initialization
-      await swapiDB.initializeAllData();
+      window.location.reload(); // Easiest way to re-trigger initialization
     } catch (err) {
       console.error('Error clearing cache:', err);
       setError('Failed to clear cache');
     }
   }, []);
 
+
   return {
-    isInitialized,
-    isLoading,
+    people,
+    arePeopleLoaded,
+    isSyncing: isLoading && !isInitialized, // True while background sync is active
     error,
     progress,
-    getAllPeople,
     getPersonWithRelations,
-    clearCache
+    clearCache,
   };
 };
 
-// Alternative hook for components that only need specific data
+// No changes needed for useSwapiPerson hook
 export const useSwapiPerson = (personId) => {
   const [person, setPerson] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const { isInitialized, isLoading: dbLoading } = useSwapi();
+  // We check isInitialized from the main hook to ensure DB is ready
+  const [isDbReady, setIsDbReady] = useState(false);
+  useEffect(() => {
+    swapiDB.initDB().then(() => setIsDbReady(true));
+  }, []);
 
   useEffect(() => {
     const loadPerson = async () => {
-      if (!isInitialized || !personId) return;
+      if (!isDbReady || !personId) return;
 
       setLoading(true);
       setError(null);
@@ -176,26 +170,25 @@ export const useSwapiPerson = (personId) => {
       try {
         const personData = await swapiDB.getPersonWithRelations(personId);
         if (!personData) {
-          setError('Character not found');
+          setError("Character not found");
         } else {
           setPerson(personData);
         }
       } catch (err) {
-        console.error('Error loading person:', err);
-        setError('Failed to load character data');
+        console.error("Error loading person:", err);
+        setError("Failed to load character data");
       } finally {
         setLoading(false);
       }
     };
 
     loadPerson();
-  }, [personId, isInitialized]);
+  }, [personId, isDbReady]);
 
   return {
     person,
-    loading: loading || dbLoading,
-    error
+    loading,
+    error,
   };
 };
-
 export default useSwapi;

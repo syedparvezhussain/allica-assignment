@@ -40,7 +40,7 @@
       "last 1 safari version"
     ]
   },
-   "jest": {
+  "jest": {
     "transformIgnorePatterns": [
       "/node_modules/(?!(axios|react-router-dom|react-router))/"
     ]
